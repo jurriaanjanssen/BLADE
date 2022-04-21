@@ -624,7 +624,7 @@ def Estep_PX(Mu0, Nu, Omega, Alpha0, Beta0, Kappa0, Ncell, Nsample):
 
 
 
-
+@njit(fastmath = True)
 def g_PY_Beta_python(Nu, Beta, Omega, Y, SigmaY, B0, Ngene, Ncell, Nsample):
     # Ngene by Ncell by Nsample
     Exp = t(np.tile(ExpQ(Nu, Beta, Omega, Ngene, Ncell, Nsample)[:,:,np.newaxis], [1,1,Ncell]), (0,2,1))
@@ -647,6 +647,7 @@ def g_PY_Beta_python(Nu, Beta, Omega, Y, SigmaY, B0, Ngene, Ncell, Nsample):
    
     return grad_PY
 
+@njit(fastmath = True)
 def g_Var_Beta_python(Nu, Omega, Beta, B0, Ngene, Ncell, Nsample):
 
     B0Rep = np.tile(B0[:,np.newaxis], [1, Ncell]) # Nsample by Ncell
@@ -712,8 +713,10 @@ class BLADE:
     def __init__(self, Y, SigmaY=0.05, Mu0=2, Alpha=1,\
             Alpha0=None, Beta0=None, Kappa0=None,\
             Nu_Init=None, Omega_Init=1, Beta_Init=None, \
-            fix_Beta = False, fix_Nu=False, fix_Omega=False):
+                 fix_Beta = False, fix_Nu=False, fix_Omega=False,tumor_index=None,tumor_purity=None):
         self.Y = Y
+        self.tumor_index = tumor_index
+        self.tumor_purity = tumor_purity
         self.Ngene, self.Nsample = Y.shape
         self.Fix_par = {
             'Beta': fix_Beta,
@@ -865,7 +868,6 @@ class BLADE:
            
 
     def Optimize(self):
-            
             # loss function
         def loss(params):
             Nu = params[0:self.Ncell*self.Ngene*self.Nsample].reshape(self.Nsample, self.Ngene, self.Ncell)
@@ -879,7 +881,6 @@ class BLADE:
                 Beta = self.Beta
             if self.Fix_par['Omega']:
                 Omega = self.Omega
-
             return -self.E_step(Nu, Beta, Omega)
 
         # gradient function
@@ -888,7 +889,6 @@ class BLADE:
             Omega = params[self.Ncell*self.Ngene*self.Nsample:(self.Ncell*self.Ngene*self.Nsample + self.Ngene*self.Ncell)].reshape(self.Ngene, self.Ncell)
             Beta = params[(self.Ncell*self.Ngene*self.Nsample + self.Ngene*self.Ncell):(self.Ncell*self.Ngene*self.Nsample + \
                     self.Ngene*self.Ncell + self.Nsample*self.Ncell)].reshape(self.Nsample, self.Ncell)
-            
             if self.Fix_par['Nu']:
                 g_Nu = np.zeros(Nu.shape)
             else:
@@ -905,19 +905,16 @@ class BLADE:
                 g_Beta = -self.grad_Beta(Nu, Omega, Beta)
 
             g = np.concatenate((g_Nu.flatten(), g_Omega.flatten(), g_Beta.flatten()))
-
             return g
 
 
         Init = np.concatenate((self.Nu.flatten(), self.Omega.flatten(), self.Beta.flatten()))
         bounds = [(-np.inf, np.inf) if i < (self.Ncell*self.Ngene*self.Nsample) else (0.0000001, 100) for i in range(len(Init))]
-
-
+        
         out = scipy.optimize.minimize(
                 fun = loss, x0 = Init, bounds = bounds, jac = grad,
                 options = {'disp': False},
                 method='L-BFGS-B')
-
 #        x,f,d = out
         params = out.x
 
@@ -925,17 +922,34 @@ class BLADE:
         self.Omega = params[self.Ncell*self.Ngene*self.Nsample:(self.Ncell*self.Ngene*self.Nsample + self.Ngene*self.Ncell)].reshape(self.Ngene, self.Ncell)
         self.Beta = params[(self.Ncell*self.Ngene*self.Nsample + self.Ngene*self.Ncell):(self.Ncell*self.Ngene*self.Nsample + \
                         self.Ngene*self.Ncell + self.Nsample*self.Ncell)].reshape(self.Nsample, self.Ncell)
-
         self.log = out.success
 
 
+def Correct_Beta_Init(Beta_Inits,tumor_purity,tumor_index):
+    """ 
+    Scale Beta_Init such that ratio tumor:nonTumor=tumor_purity
+    TODO: Allow tumor_purity/tumor_index as array (with shape [Nsamples,])
+    :param np.array  Beta_Inits: Nsamp:Ncell array of Beta inits
+    :param float tumor_purity: Expected tumor purity
+    :param index tumor_index: index of tumor cells
+    :returns: np.array Beta_inits : Beta_Init corrected for tumor purity
+    """
+    for ix,Beta_Init in enumerate(Beta_Inits):
+        nonTumor_Beta = [ele for i,ele in enumerate(Beta_Init) if i != tumor_index]
+        Beta_Init[tumor_index] = Beta_Init[tumor_index] * tumor_purity / (Beta_Init[tumor_index] / sum(nonTumor_Beta) * (1-tumor_purity))
+        Beta_Inits[ix] = Beta_Init
+    return Beta_Inits
 
-def Optimize(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction):
+def Optimize(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction,tumor_purity,tumor_index):
     Beta_Init = np.random.gamma(shape=1, size=(Nsample, Ncell)) * 0.1 + t(Init_Fraction) * 10
-    obs = BLADE(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0,
-            Nu_Init, Omega_Init, Beta_Init, fix_Nu=True, fix_Omega=True)
-    obs.Optimize()
     
+    # correct Beta if tumor purity/index is given
+    if tumor_purity and tumor_index:
+        Beta_Init = Correct_Beta_Init(Beta_Init,tumor_purity,tumor_index)
+        
+    obs = BLADE(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0,
+                Nu_Init, Omega_Init, Beta_Init,tumor_purity=tumor_purity,tumor_index=tumor_index, fix_Nu=True, fix_Omega=True)
+    obs.Optimize()
     #obs.Fix_par['Beta'] = True
     obs.Fix_par['Nu'] = False
     obs.Fix_par['Omega'] = False
@@ -946,7 +960,9 @@ def Optimize(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Ini
     return obs
 
 def BLADE_job(X, stdX, Y, Alpha, Alpha0, Kappa0, SY,
-                Init_Fraction, Rep, Crit='E_step'):
+                Init_Fraction, Rep,
+                tumor_purity,tumor_index,
+                Crit='E_step'):
     Ngene, Nsample = Y.shape
     Ncell = X.shape[1]
     
@@ -966,11 +982,8 @@ def BLADE_job(X, stdX, Y, Alpha, Alpha0, Kappa0, SY,
             'Beta0': Beta0, 'Kappa0': Kappa0, 'SigmaY': SY, 'Rep':Rep}
 
     out = Optimize(logY, SigmaY, Mu0,
-                    Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction)
-
+                    Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction,tumor_purity,tumor_index)
     setting['E-step'] = out.E_step(out.Nu, out.Beta, out.Omega)
-
-
     return out, setting
 
 
@@ -982,7 +995,8 @@ def NuSVR_job(X, Y, Nus, sample):
 
 def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None, 
         Alphas=[1,10], Alpha0s=[0.1,1,5], Kappa0s=[1,0.5,0.1], SYs=[1,0.3,0.5],
-        Nrep=3, Njob=10, Nrepfinal=10, fsel=0, ParallSample=False):
+              Nrep=3, Njob=10, Nrepfinal=10, fsel=0, ParallSample=False,
+              tumor_purity=None,tumor_index=None):
 
     Ngene, Nsample = Y.shape
     Ncell = X.shape[1]
@@ -1040,7 +1054,7 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
     start = time.time()
     outs = Parallel(n_jobs=Njob, verbose=10)(
             delayed(BLADE_job)(X_small[Ind_use,:], stdX_small[Ind_use,:], Y_small[Ind_use,:], 
-                a, a0, k0, sY, Init_Fraction[:,Ind_sample], Rep=rep)
+                               a, a0, k0, sY, Init_Fraction[:,Ind_sample], Rep=rep, tumor_purity=tumor_purity, tumor_index=tumor_index)
                 for a, a0, k0, sY, rep in itertools.product(
                     Alphas, Alpha0s, Kappa0s, SYs, range(Nrep)
                     )
@@ -1134,6 +1148,6 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
 
     else:
         final_obs = best_obs
-
+    print("\nTHE FINAL FRACTIONS ARE:\n",np.transpose(final_obs.ExpF(final_obs.Beta)))
     return final_obs, best_obs, best_set, All_out
   
