@@ -735,7 +735,7 @@ class BLADE:
             self.SigmaY = np.ones((self.Ngene, self.Nsample))*SigmaY
 
         if isinstance(Alpha, np.ndarray):
-            self.Alpha = Alpha
+            self.Alpha = np.repeat(Alpha[None, :], self.Nsample, axis=0)
         else:
             self.Alpha = np.ones((self.Nsample, self.Ncell))*Alpha
 
