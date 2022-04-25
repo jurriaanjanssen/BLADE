@@ -944,7 +944,7 @@ def Optimize(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Ini
     Beta_Init = np.random.gamma(shape=1, size=(Nsample, Ncell)) * 0.1 + t(Init_Fraction) * 10
     
     # correct Beta if tumor purity/index is given
-    if tumor_purity and tumor_index:
+    if tumor_purity != None and tumor_index != None:
         Beta_Init = Correct_Beta_Init(Beta_Init,tumor_purity,tumor_index)
         
     obs = BLADE(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0,
