@@ -713,10 +713,11 @@ class BLADE:
     def __init__(self, Y, SigmaY=0.05, Mu0=2, Alpha=1,\
             Alpha0=None, Beta0=None, Kappa0=None,\
             Nu_Init=None, Omega_Init=1, Beta_Init=None, \
-                 fix_Beta = False, fix_Nu=False, fix_Omega=False,tumor_index=None,tumor_purity=None):
+                 fix_Beta = False, fix_Nu=False, fix_Omega=False,tumor_index=None,tumor_purity=None,scaleA_tumor=1):
         self.Y = Y
         self.tumor_index = tumor_index
         self.tumor_purity = tumor_purity
+        self.scaleA_tumor = scaleA_tumor
         self.Ngene, self.Nsample = Y.shape
         self.Fix_par = {
             'Beta': fix_Beta,
@@ -741,6 +742,8 @@ class BLADE:
             self.Alpha = np.repeat(Alpha[None, :], self.Nsample, axis=0)
         else:
             self.Alpha = np.ones((self.Nsample, self.Ncell))*Alpha
+            # scale Alpha for tumor index
+            self.Alpha[:,tumor_index] = self.Alpha[:,tumor_index] * scaleA_tumor
 
         if isinstance(Omega_Init, np.ndarray):
             self.Omega = Omega_Init
@@ -940,7 +943,7 @@ def Correct_Beta_Init(Beta_Inits,tumor_purity,tumor_index):
         Beta_Inits[ix] = Beta_Init
     return Beta_Inits
 
-def Optimize(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction,tumor_purity,tumor_index):
+def Optimize(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction,tumor_purity,tumor_index,scaleA_tumor):
     Beta_Init = np.random.gamma(shape=1, size=(Nsample, Ncell)) * 0.1 + t(Init_Fraction) * 10
     
     # correct Beta if tumor purity/index is given
@@ -948,7 +951,7 @@ def Optimize(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Ini
         Beta_Init = Correct_Beta_Init(Beta_Init,tumor_purity,tumor_index)
         
     obs = BLADE(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0,
-                Nu_Init, Omega_Init, Beta_Init,tumor_purity=tumor_purity,tumor_index=tumor_index, fix_Nu=True, fix_Omega=True)
+                Nu_Init, Omega_Init, Beta_Init,tumor_purity=tumor_purity,tumor_index=tumor_index,scaleA_tumor=scaleA_tumor, fix_Nu=True, fix_Omega=True)
     obs.Optimize()
     #obs.Fix_par['Beta'] = True
     obs.Fix_par['Nu'] = False
@@ -961,7 +964,7 @@ def Optimize(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Ini
 
 def BLADE_job(X, stdX, Y, Alpha, Alpha0, Kappa0, SY,
                 Init_Fraction, Rep,
-                tumor_purity,tumor_index,
+                tumor_purity,tumor_index,scaleA_tumor,
                 Crit='E_step'):
     Ngene, Nsample = Y.shape
     Ncell = X.shape[1]
@@ -982,7 +985,7 @@ def BLADE_job(X, stdX, Y, Alpha, Alpha0, Kappa0, SY,
             'Beta0': Beta0, 'Kappa0': Kappa0, 'SigmaY': SY, 'Rep':Rep}
 
     out = Optimize(logY, SigmaY, Mu0,
-                    Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction,tumor_purity,tumor_index)
+                    Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction,tumor_purity,tumor_index,scaleA_tumor=scaleA_tumor)
     setting['E-step'] = out.E_step(out.Nu, out.Beta, out.Omega)
     return out, setting
 
@@ -996,7 +999,7 @@ def NuSVR_job(X, Y, Nus, sample):
 def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None, 
         Alphas=[1,10], Alpha0s=[0.1,1,5], Kappa0s=[1,0.5,0.1], SYs=[1,0.3,0.5],
               Nrep=3, Njob=10, Nrepfinal=10, fsel=0, ParallSample=False,
-              tumor_purity=None,tumor_index=None):
+              tumor_purity=None,tumor_index=None,scaleA_tumor=scaleA_tumor):
 
     Ngene, Nsample = Y.shape
     Ncell = X.shape[1]
@@ -1054,7 +1057,7 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
     start = time.time()
     outs = Parallel(n_jobs=Njob, verbose=10)(
             delayed(BLADE_job)(X_small[Ind_use,:], stdX_small[Ind_use,:], Y_small[Ind_use,:], 
-                               a, a0, k0, sY, Init_Fraction[:,Ind_sample], Rep=rep, tumor_purity=tumor_purity, tumor_index=tumor_index)
+                               a, a0, k0, sY, Init_Fraction[:,Ind_sample], Rep=rep, tumor_purity=tumor_purity, tumor_index=tumor_index,scaleA_tumor=scaleA_tumor)
                 for a, a0, k0, sY, rep in itertools.product(
                     Alphas, Alpha0s, Kappa0s, SYs, range(Nrep)
                     )
