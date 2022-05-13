@@ -931,15 +931,14 @@ class BLADE:
 def Correct_Beta_Init(Beta_Inits,tumor_purity,tumor_index):
     """ 
     Scale Beta_Init such that ratio tumor:nonTumor=tumor_purity
-    TODO: Allow tumor_purity/tumor_index as array (with shape [Nsamples,])
     :param np.array  Beta_Inits: Nsamp:Ncell array of Beta inits
-    :param float tumor_purity: Expected tumor purity
+    :param list_of_floats tumor_purity: Expected tumor purities for each sample
     :param index tumor_index: index of tumor cells
     :returns: np.array Beta_inits : Beta_Init corrected for tumor purity
     """
     for ix,Beta_Init in enumerate(Beta_Inits):
         nonTumor_Beta = [ele for i,ele in enumerate(Beta_Init) if i != tumor_index]
-        Beta_Init[tumor_index] = Beta_Init[tumor_index] * tumor_purity / (Beta_Init[tumor_index] / sum(nonTumor_Beta) * (1-tumor_purity))
+        Beta_Init[tumor_index] = Beta_Init[tumor_index] * tumor_purity[ix] / (Beta_Init[tumor_index] / sum(nonTumor_Beta) * (1-tumor_purity[ix]))
         Beta_Inits[ix] = Beta_Init
     return Beta_Inits
 
