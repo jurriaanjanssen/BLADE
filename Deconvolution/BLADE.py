@@ -1065,7 +1065,7 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
     outs, setting = zip(*outs)
     cri = [obs.E_step(obs.Nu, obs.Beta, obs.Omega) for obs in outs]
     if tumor_purity != None and tumor_index != None:
-        tumor_error = [tumor_purity - np.mean(obs.ExpF(obs.Beta)[:,tumor_index]) for obs in outs]
+        tumor_error = [sum(tumor_purity - abs(obs.ExpF(obs.Beta)[:,tumor_index])) for obs in outs]
         cri = [loss * (error**2) for loss,error in zip(cri,tumor_error)]
     best_obs = outs[np.nanargmax(cri)]
     best_set = setting[np.nanargmax(cri)]
@@ -1108,7 +1108,7 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
             outs, setting = zip(*final_obs)
             cri = [obs.E_step(obs.Nu, obs.Beta, obs.Omega) for obs in outs]
             if tumor_purity != None and tumor_index != None:
-                tumor_error = [tumor_purity - np.mean(obs.ExpF(obs.Beta)[:,tumor_index]) for obs in outs]
+                tumor_error = [sum(tumor_purity - abs(obs.ExpF(obs.Beta)[:,tumor_index])) for obs in outs]
                 cri = [loss * (error**2) for loss,error in zip(cri,tumor_error)]
 
             final_obs = outs[np.argmax(cri)]
@@ -1129,7 +1129,7 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
             cri = [obs.E_step(obs.Nu, obs.Beta, obs.Omega) for obs in outs]
             
             if tumor_purity != None and tumor_index != None:
-                tumor_error = [tumor_purity - np.mean(obs.ExpF(obs.Beta)[:,tumor_index]) for obs in outs]
+                tumor_error = [sum(tumor_purity - abs(obs.ExpF(obs.Beta)[:,tumor_index])) for obs in outs]
                 cri = [loss * (error**2) for loss,error in zip(cri,tumor_error)]
             
             fold = [int(sett['Rep'].split('_')[1]) for sett in setting]
