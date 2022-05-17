@@ -713,7 +713,7 @@ class BLADE:
     def __init__(self, Y, SigmaY=0.05, Mu0=2, Alpha=1,\
             Alpha0=None, Beta0=None, Kappa0=None,\
             Nu_Init=None, Omega_Init=1, Beta_Init=None, \
-                 fix_Beta = False, fix_Nu=False, fix_Omega=False,tumor_index=None,tumor_purity=None,scaleA_tumor=1):
+                 fix_Beta = False, fix_Nu=False, fix_Omega=False,tumor_purity=None,tumor_index=None,scaleA_tumor=1):
         self.Y = Y
         self.tumor_index = tumor_index
         self.tumor_purity = tumor_purity
@@ -940,10 +940,12 @@ def Correct_Beta_Init(Beta_Inits,tumor_purity,tumor_index):
         nonTumor_Beta = [ele for i,ele in enumerate(Beta_Init) if i != tumor_index]
         Beta_Init[tumor_index] = Beta_Init[tumor_index] * tumor_purity[ix] / (Beta_Init[tumor_index] / sum(nonTumor_Beta) * (1-tumor_purity[ix]))
         Beta_Inits[ix] = Beta_Init
+        
     return Beta_Inits
 
 def Optimize(logY, SigmaY, Mu0, Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction,tumor_purity,tumor_index,scaleA_tumor):
     Beta_Init = np.random.gamma(shape=1, size=(Nsample, Ncell)) * 0.1 + t(Init_Fraction) * 10
+ 
     
     # correct Beta if tumor purity/index is given
     if tumor_purity != None and tumor_index != None:
@@ -967,9 +969,7 @@ def BLADE_job(X, stdX, Y, Alpha, Alpha0, Kappa0, SY,
                 Crit='E_step'):
     Ngene, Nsample = Y.shape
     Ncell = X.shape[1]
-    
     Mu0 = X
-    
     logY = np.log(Y+1)
     SigmaY = np.tile(np.std(logY,1)[:,np.newaxis], [1,Nsample]) * SY + 0.1
     Omega_Init = stdX
@@ -984,7 +984,7 @@ def BLADE_job(X, stdX, Y, Alpha, Alpha0, Kappa0, SY,
             'Beta0': Beta0, 'Kappa0': Kappa0, 'SigmaY': SY, 'Rep':Rep}
 
     out = Optimize(logY, SigmaY, Mu0,
-                    Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction,tumor_purity,tumor_index,scaleA_tumor=scaleA_tumor)
+                    Alpha, Alpha0, Beta0, Kappa0, Nu_Init, Omega_Init, Nsample, Ncell, Init_Fraction,tumor_purity,tumor_index,scaleA_tumor)
     setting['E-step'] = out.E_step(out.Nu, out.Beta, out.Omega)
     return out, setting
 
@@ -998,7 +998,7 @@ def NuSVR_job(X, Y, Nus, sample):
 def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None, 
         Alphas=[1,10], Alpha0s=[0.1,1,5], Kappa0s=[1,0.5,0.1], SYs=[1,0.3,0.5],
               Nrep=3, Njob=10, Nrepfinal=10, fsel=0, ParallSample=False,
-              tumor_purity=None,tumor_index=None,scaleA_tumor=scaleA_tumor):
+              tumor_purity=None,tumor_index=None,scaleA_tumor=1):
 
     Ngene, Nsample = Y.shape
     Ncell = X.shape[1]
@@ -1011,7 +1011,6 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
     X_small = X[Ind_Marker,:]
     Y_small = Y[Ind_Marker,:][:,Ind_sample]
     stdX_small = stdX[Ind_Marker,:]
-
     Nmarker = Y_small.shape[0]
     Nsample_small = Y_small.shape[1]
 
@@ -1031,7 +1030,6 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
     SVRcoef = np.zeros((Ncell, Nsample))
     Selcoef = np.zeros((Nmarker, Nsample))
     Nus = [0.25, 0.5, 0.75]
-
     sols = Parallel(n_jobs=Njob, verbose=10)(
             delayed(NuSVR_job)(X_small, Y[Ind_Marker,:], Nus, i)
             for i in range(Nsample)
@@ -1065,7 +1063,7 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
     outs, setting = zip(*outs)
     cri = [obs.E_step(obs.Nu, obs.Beta, obs.Omega) for obs in outs]
     if tumor_purity != None and tumor_index != None:
-        tumor_error = [sum(tumor_purity - abs(obs.ExpF(obs.Beta)[:,tumor_index])) for obs in outs]
+        tumor_error = [np.mean(abs(tumor_purity - obs.ExpF(obs.Beta)[:,tumor_index])) for obs in outs]
         cri = [loss * (error**2) for loss,error in zip(cri,tumor_error)]
     best_obs = outs[np.nanargmax(cri)]
     best_set = setting[np.nanargmax(cri)]
@@ -1079,7 +1077,6 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
     end = time.time()
     elapsed = end - start
     print("Done optimization, elapsed time (min): " + str(elapsed/60))
-
     # run on entire cohort
     if Nsample_small < Nsample or Ngene < Nmarker:
         print("Start inferring per-sample gene expression levels using the entire genes and samples")
@@ -1108,11 +1105,9 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
             outs, setting = zip(*final_obs)
             cri = [obs.E_step(obs.Nu, obs.Beta, obs.Omega) for obs in outs]
             if tumor_purity != None and tumor_index != None:
-                tumor_error = [sum(tumor_purity - abs(obs.ExpF(obs.Beta)[:,tumor_index])) for obs in outs]
+                tumor_error = [np.mean(abs(tumor_purity - obs.ExpF(obs.Beta)[:,tumor_index])) for obs in outs]
                 cri = [loss * (error**2) for loss,error in zip(cri,tumor_error)]
-
             final_obs = outs[np.argmax(cri)]
-
         else:
             print("random split of samples into " + str(Nfold) + " groups.")
             sampleInd = []
@@ -1127,11 +1122,9 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
 
             outs, setting = zip(*final_obs)
             cri = [obs.E_step(obs.Nu, obs.Beta, obs.Omega) for obs in outs]
-            
             if tumor_purity != None and tumor_index != None:
-                tumor_error = [sum(tumor_purity - abs(obs.ExpF(obs.Beta)[:,tumor_index])) for obs in outs]
+                tumor_error = [np.mean(abs(tumor_purity - obs.ExpF(obs.Beta)[:,tumor_index])) for obs in outs]
                 cri = [loss * (error**2) for loss,error in zip(cri,tumor_error)]
-            
             fold = [int(sett['Rep'].split('_')[1]) for sett in setting]
 
             Beta = np.zeros((Nsample, Ncell))
