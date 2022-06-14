@@ -1013,6 +1013,7 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
     stdX_small = stdX[Ind_Marker,:]
     Nmarker = Y_small.shape[0]
     Nsample_small = Y_small.shape[1]
+    tumor_purity_small = [expected_tumor_purity_small[i] for i,bool in enumerate(Ind_sample) if bool]
 
     if Nmarker < Ngene:
         print("start optimization using marker genes: " + str(Nmarker) +\
@@ -1054,7 +1055,7 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
     start = time.time()
     outs = Parallel(n_jobs=Njob, verbose=10)(
             delayed(BLADE_job)(X_small[Ind_use,:], stdX_small[Ind_use,:], Y_small[Ind_use,:], 
-                               a, a0, k0, sY, Init_Fraction[:,Ind_sample], Rep=rep, tumor_purity=tumor_purity, tumor_index=tumor_index,scaleA_tumor=scaleA_tumor)
+                               a, a0, k0, sY, Init_Fraction[:,Ind_sample], Rep=rep, tumor_purity=tumor_purity_small, tumor_index=tumor_index,scaleA_tumor=scaleA_tumor)
                 for a, a0, k0, sY, rep in itertools.product(
                     Alphas, Alpha0s, Kappa0s, SYs, range(Nrep)
                     )
@@ -1098,7 +1099,7 @@ def Framework(X, stdX, Y, Ind_Marker=None, Ind_sample=None,
         if Nfold < 2 or not ParallSample:
             final_obs = Parallel(n_jobs=Njob, verbose=10)(
                 delayed(BLADE_job)(X, stdX, Y, best_set['Alpha'], best_set['Alpha0'], best_set['Kappa0'], 
-                    best_set['SigmaY'], Init_Fraction, Rep=rep)
+                    best_set['SigmaY'], Init_Fraction, Rep=rep,tumor_purity,tumor_index,scaleA_tumor)
                     for rep in range(Nrepfinal)
                 )
 
